@@ -6,7 +6,7 @@
   "id": "did:web:tomas-alexander.github.io:credenciales:did",
   "verificationMethod": [
     {
-      "publicKeyMultibase": "z6Mku6HohYEWYihe3hRfVax1vdMqR7eF4LoLHC3AaNcFurRo",
+      "publicKeyMultibase": "z6Mkpq38rXsMyBRN8itzz52ufSCyq3VFndgBsxLbT7WTCyHy",
       "controller": "did:web:tomas-alexander.github.io:credenciales:did",
       "id": "did:web:tomas-alexander.github.io:credenciales:did#key-0",
       "type": "Ed25519VerificationKey2020",
@@ -15,7 +15,5 @@
   ],
   "@context": ["https://www.w3.org/ns/did/v1"],
   "alsoKnownAs": [],
-  "authentication": [
-    "did:web:tomas-alexander.github.io:credenciales:did#key-0"
-  ]
+  "authentication": ["did:web:tomas-alexander.github.io:credenciales:did#key-0"]
 }
