@@ -1,14 +1,14 @@
 {
   "assertionMethod": [
-    "did:web:tomas-alexander.github.io:credenciales:farmer#key-0"
+    "did:web:tomas-alexander.github.io:asdasd:farmer#key-0"
   ],
   "service": [],
-  "id": "did:web:tomas-alexander.github.io:credenciales:farmer",
+  "id": "did:web:tomas-alexander.github.io:asdasd:farmer",
   "verificationMethod": [
     {
-      "publicKeyMultibase": "z6MkexAXMXQBmzMZbZgnTtoBYWPr6SVfyaQtuXW7NfNzezS3",
-      "controller": "did:web:tomas-alexander.github.io:credenciales:farmer",
-      "id": "did:web:tomas-alexander.github.io:credenciales:farmer#key-0",
+      "publicKeyMultibase": "z6MktJpVk7NuUPYPnbt6oZ8jaAec19VdAbyr4XNtVq1mvsQs",
+      "controller": "did:web:tomas-alexander.github.io:asdasd:farmer",
+      "id": "did:web:tomas-alexander.github.io:asdasd:farmer#key-0",
       "type": "Ed25519VerificationKey2020",
       "@context": "https://w3id.org/security/suites/ed25519-2020/v1"
     }
@@ -18,6 +18,6 @@
   ],
   "alsoKnownAs": [],
   "authentication": [
-    "did:web:tomas-alexander.github.io:credenciales:farmer#key-0"
+    "did:web:tomas-alexander.github.io:asdasd:farmer#key-0"
   ]
 }
