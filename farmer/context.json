@@ -1,0 +1,30 @@
+{
+  "@context": {
+    "@version": 1.1,
+    "@protected": true,
+    "type": "@type",
+    "schema": "https://schema.org/",
+    "RegistrationReceiptCredential": {
+      "@id": "https://mosip.github.io/inji-config/dev1/registration-receipt-context.json#RegistrationReceiptCredential"
+    },
+    "NumberOfCAR": "schema:Text",
+    "RegistrationDate": "schema:DateTime",
+    "RuralPropertyName": "schema:Text",
+    "Municipality": "schema:Text",
+    "Latitude": "schema:Text",
+    "Longitude": "schema:Text",
+    "TotalArea": "schema:Text",
+    "FiscalModules": "schema:Float",
+    "ProtocolCode": "schema:Text",
+    "CPF": "schema:Text",
+    "HolderName": "schema:Person",
+    "TotalDeclaredArea": "schema:Float",
+    "AdministrativeEasementArea": "schema:Float",
+    "NetArea": "schema:Float",
+    "ConsolidatedArea": "schema:Float",
+    "NativeVegetationRemnant": "schema:Float",
+    "LegalReserveArea": "schema:Float",
+    "PermanentPreservationArea": "schema:Float",
+    "RestrictedUseArea": "schema:Float"
+  }
+}
