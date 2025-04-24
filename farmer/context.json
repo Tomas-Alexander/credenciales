@@ -4,27 +4,23 @@
     "@protected": true,
     "type": "@type",
     "schema": "https://schema.org/",
-    "RegistrationReceiptCredential": {
-      "@id": "https://mosip.github.io/inji-config/dev1/registration-receipt-context.json#RegistrationReceiptCredential"
+    "FarmerCredential": {
+      "@id": "https://tomas-alexander.github.io/credenciales/farmer/context.json#FarmerCredential"
     },
-    "NumberOfCAR": "schema:Text",
-    "RegistrationDate": "schema:DateTime",
-    "RuralPropertyName": "schema:Text",
-    "Municipality": "schema:Text",
-    "Latitude": "schema:Text",
-    "Longitude": "schema:Text",
-    "TotalArea": "schema:Text",
-    "FiscalModules": "schema:Float",
-    "ProtocolCode": "schema:Text",
-    "CPF": "schema:Text",
-    "HolderName": "schema:Person",
-    "TotalDeclaredArea": "schema:Float",
-    "AdministrativeEasementArea": "schema:Float",
-    "NetArea": "schema:Float",
-    "ConsolidatedArea": "schema:Float",
-    "NativeVegetationRemnant": "schema:Float",
-    "LegalReserveArea": "schema:Float",
-    "PermanentPreservationArea": "schema:Float",
-    "RestrictedUseArea": "schema:Float"
+    "Id": "schema:Text",
+    "FullName": "schema:Text",
+    "MobileNumber": "schema:Text",
+    "DateOfBirth": "schema:Date",
+    "Gender": "schema:Text",
+    "State": "schema:Text",
+    "District": "schema:Text",
+    "VillageOrTown": "schema:Text",
+    "PostalCode": "schema:Text",
+    "LandArea": "schema:Text",
+    "LandOwnershipType": "schema:Text",
+    "PrimaryCropType": "schema:Text",
+    "SecondaryCropType": "schema:Text",
+    "Face": "schema:Text",
+    "FarmerID": "schema:Text"
   }
 }
