@@ -7,20 +7,16 @@
     "FarmerCredential": {
       "@id": "https://tomas-alexander.github.io/credenciales/farmer/context.json#FarmerCredential"
     },
-    "Id": "schema:Text",
-    "FullName": "schema:Text",
-    "MobileNumber": "schema:Text",
-    "DateOfBirth": "schema:Date",
-    "Gender": "schema:Text",
-    "State": "schema:Text",
-    "District": "schema:Text",
-    "VillageOrTown": "schema:Text",
-    "PostalCode": "schema:Text",
-    "LandArea": "schema:Text",
-    "LandOwnershipType": "schema:Text",
-    "PrimaryCropType": "schema:Text",
-    "SecondaryCropType": "schema:Text",
-    "Face": "schema:Text",
-    "FarmerID": "schema:Text"
+    "national_id": "schema:Text",
+    "full_name": "schema:Text",
+    "address": "schema:Text",
+    "height": "schema:Date",
+    "weight": "schema:Text",
+    "sex": "schema:Text",
+    "blood_type": "schema:Text",
+    "birth_date": "schema:Text",
+    "issue_date": "schema:Text",
+    "expiration_date": "schema:Text",
+    "Face": "schema:Text"
   }
 }
