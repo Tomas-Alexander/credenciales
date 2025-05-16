@@ -17,6 +17,6 @@
     "birth_date": "schema:Text",
     "issue_date": "schema:Text",
     "expiration_date": "schema:Text",
-    "Face": "schema:Text"
+    "face": "schema:Text"
   }
 }
