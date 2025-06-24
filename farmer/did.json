@@ -6,7 +6,7 @@
   "id": "did:web:tomas-alexander.github.io:credenciales:farmer",
   "verificationMethod": [
     {
-      "publicKeyMultibase": "z6MkpNDcpc2nvVxGLA7xFvcdVZd5st98ZJ7ipURhhE5ajyMx",
+      "publicKeyMultibase": "z6Mki8mNh6Mj94kp1N9CUuU1UMbubcB9kCsqetfATPwsYcr3",
       "controller": "did:web:tomas-alexander.github.io:credenciales:farmer",
       "id": "did:web:tomas-alexander.github.io:credenciales:farmer#key-0",
       "type": "Ed25519VerificationKey2020",
