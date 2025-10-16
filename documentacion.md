@@ -1,290 +1,1027 @@
+# Verifiable Credential Download Flow Documentation
 
-Guía para implementar Cuenta Única con Inji
+## Overview
+This document describes the complete flow for downloading verifiable credentials in the mobile application. The app supports two download methods:
+1. **Trusted Issuer Flow** - User selects from a list of pre-approved issuers
+2. **Credential Offer Flow** - User scans a QR code containing a credential offer
 
-- Crear el cliente de Oauth2
-  - Configurar el redirect URI a http://<dominio principal>/redirect
-  - Access token type tiene que ser JWT
-  - Authentication method tiene que ser JWT Authentication
-  - Autentication Signing Algorithm RS256
+## Architecture
+The application uses:
+- **XState** for state machine management
+- **React Native** for the mobile UI
+- **Native VciClient library** (Kotlin/Android) for OpenID4VCI protocol implementation
+- **Callback pattern** for native-to-JS communication
+
+---
+
+## Flow 1: Trusted Issuer Download Flow
+
+### Step 1: User Initiates Download
+**File**: `screens/Home/HomeScreen.tsx` (DownloadFABIcon component)
+
+```
+User Action: Clicks the floating action button (FAB) with plus icon
+↓
+Triggers: controller.GOTO_ISSUERS()
+```
+
+### Step 2: Navigation to Issuers
+**File**: `screens/Home/HomeScreen.tsx` (useHomeScreen hook)
+
+```
+GOTO_ISSUERS() sends event to HomeScreenMachine
+↓
+Event: HomeScreenEvents.GOTO_ISSUERS()
+```
+
+### Step 3: Storage Check
+**File**: `screens/Home/HomeScreenMachine.ts`
+
+```
+State Transition: tabs.checkStorage
+↓
+Invokes: checkStorageAvailability service
+↓
+Checks: isMinimumStorageLimitReached()
+↓
+Two Paths:
+  - If storage full → storageLimitReached state (show error)
+  - If storage OK → gotoIssuers state
+```
+
+### Step 4: Launch Issuers Machine
+**File**: `screens/Home/HomeScreenMachine.ts`
+
+```
+State: gotoIssuers
+↓
+Spawns: IssuersMachine (as child machine)
+↓
+Passes: serviceRefs context to child
+```
+
+### Step 5: Display Issuers List
+**File**: `machines/Issuers/IssuersMachine.ts`
+
+```
+Initial State: displayIssuers
+↓
+Invokes: downloadIssuersList service
+```
+
+**File**: `machines/Issuers/IssuersService.ts`
+
+```javascript
+downloadIssuersList: async () => {
+  // Fetches trusted issuers from backend API
+  const trustedIssuersList = await CACHED_API.fetchIssuers();
+  return trustedIssuersList;
+}
+```
+
+**🌐 API REQUEST #1: Fetch Trusted Issuers List**
+```
+Method: GET /v1/mimoto/issuers
+Endpoint: /v1/mimoto/issuers
+Purpose: Retrieves list of pre-approved credential issuers
+Response: Array of issuer objects with metadata
+```
+
+```
+Success:
+  - Actions: setIssuers, sendImpressionEvent
+  - Transition: selectingIssuer state
   
-- Crear un JSON Web Key Set Document
-  - debe crear un archivo jwk.json y subirlo a una URL pública, este jwk.json debe tener el siguiente formato:
-  ```
-  {
-    "keys": [
+Error:
+  - Actions: setError
+  - Transition: error state
+```
+
+### Step 6: User Selects Issuer
+**File**: `machines/Issuers/IssuersMachine.ts`
+
+```
+State: selectingIssuer
+↓
+User Action: Selects an issuer from the list
+↓
+Event: SELECTED_ISSUER
+↓
+Actions:
+  - setSelectedIssuerId
+  - setLoadingReasonAsSettingUp
+  - setSelectedIssuers
+↓
+Transition: downloadIssuerWellknown state
+```
+
+### Step 7: Download Issuer Configuration
+**File**: `machines/Issuers/IssuersMachine.ts`
+
+```
+State: downloadIssuerWellknown
+↓
+Invokes: downloadIssuerWellknown service
+```
+
+**File**: `machines/Issuers/IssuersService.ts`
+
+```javascript
+downloadIssuerWellknown: async (context) => {
+  // Fetches OpenID4VCI .well-known configuration
+  const wellknownResponse = await VciClient.getInstance()
+    .getIssuerMetadata(context.selectedIssuer.credential_issuer_host);
+  
+  // Caches the response locally
+  await setItem(
+    API_CACHED_STORAGE_KEYS.fetchIssuerWellknownConfig(...),
+    wellknownCacheObject
+  );
+  
+  return wellknownResponse;
+}
+```
+
+**Native VciClient** (Kotlin):
+```kotlin
+fun getIssuerMetadata(credentialIssuer: String): Map<String, Any> {
+  // Fetches from: https://{issuer}/.well-known/openid-credential-issuer
+  return IssuerMetadataService().fetchAndParseIssuerMetadata(credentialIssuer)
+}
+```
+
+```
+Success:
+  - Actions: updateIssuerFromWellknown
+  - Transition: getCredentialTypes state
+```
+
+### Step 8: Get Credential Types
+**File**: `machines/Issuers/IssuersMachine.ts`
+
+```
+State: getCredentialTypes
+↓
+Invokes: getCredentialTypes service
+```
+
+**File**: `machines/Issuers/IssuersService.ts`
+
+```javascript
+getCredentialTypes: async (context) => {
+  // Extracts supported credential types from wellknown config
+  const credentialTypes = [];
+  const keys = Object.keys(
+    selectedIssuer.credential_configurations_supported
+  );
+  
+  for (const key of keys) {
+    credentialTypes.push({
+      id: key,
+      ...selectedIssuer.credential_configurations_supported[key]
+    });
+  }
+  
+  return credentialTypes;
+}
+```
+
+```
+Success:
+  - Actions: setSupportedCredentialTypes
+  - Transition: selectingCredentialType state
+```
+
+### Step 9: User Selects Credential Type
+**File**: `machines/Issuers/IssuersMachine.ts`
+
+```
+State: selectingCredentialType
+↓
+User Action: Selects a credential type (e.g., "National ID", "Driver License")
+↓
+Event: SELECTED_CREDENTIAL_TYPE
+↓
+Actions: setSelectedCredentialType
+↓
+Transition: downloadCredentials state
+```
+
+### Step 10: Download Credential (OAuth2/OIDC Flow)
+**File**: `machines/Issuers/IssuersMachine.ts`
+
+```
+State: downloadCredentials
+↓
+Entry: setLoadingReasonAsDownloadingCredentials
+↓
+Invokes: downloadCredential service
+```
+
+**File**: `machines/Issuers/IssuersService.ts`
+
+```javascript
+downloadCredential: (context) => async (sendBack) => {
+  // Callback: Opens browser for OAuth authorization
+  const navigateToAuthView = (authorizationEndpoint) => {
+    sendBack({
+      type: 'AUTH_ENDPOINT_RECEIVED',
+      authEndpoint: authorizationEndpoint
+    });
+  };
+  
+  // Callback: Handles proof JWT generation
+  const getProofJwt = async (credentialIssuer, cNonce, algosSupported) => {
+    sendBack({
+      type: 'PROOF_REQUEST',
+      credentialIssuer,
+      cNonce,
+      proofSigningAlgosSupported: algosSupported
+    });
+  };
+  
+  // Callback: Handles token request
+  const getTokenResponse = (tokenRequest) => {
+    sendBack({
+      type: 'TOKEN_REQUEST',
+      tokenRequest
+    });
+  };
+  
+  // Native library handles OAuth flow
+  const {credential} = await VciClient.getInstance()
+    .requestCredentialFromTrustedIssuer(
+      context.selectedIssuer.credential_issuer_host,
+      context.selectedCredentialType.id,
       {
-        "kty": "RSA",
-        "n": "vGlYp-KV4pPCB4C1PQr4FIR5v_Uv-q34DkM1mmF-jgMSOlANNahoNX0JoVDrRrzPSQv6ZRXljUdaj6OmqH1tCEo0krnmY2HR1URVRf-oH0FVin7a7SNtWRF1Kz5qlZ8i2AewChfySfPqwIgnXbT88f01-05AXCJCGNDY7YVk4Bx8sDwqYojKp8Mmk3ueIytFVb97no60hqzp1wigqxZRjoeg_cfSIOIttTEFgJsb2Yz-ueXVJFqphOi0coF1o99mBXaJEeEH3gN1c9WNwz8TER9SoyyzDq41TnQ9r5ldz2n0QlHA2a-VExDdbcE_Iso0JhwsyLlYPspqgMyBKyi0YQ",
-        "e": "AQAB",
-        "alg": "RS256",
-        "kid": "aaf180ad-4bcc-4eb2-8133-803c2d85a08f",
-        "use": "sig"
-      }
-    ]
-  }
-
-  ```
-  - También debe crear un archivo oidckeystore.p12, ese archivo se pondrá en la carpeta docker-compose\docker-compose-injistack\certs\ en el inji-certify y en docker-compose\certs\oidckeystore.p12 en el proyecto de Mimoto
-  - el nombre del archivo y la contraseña deben ponerse en el archivo mimoto-default-properties en el proyecto de Mimoto de la siguiente manera:
-  ```
-  mosip.partner.crypto.p12.filename=oidckeystore.p12
-  mosip.partner.crypto.p12.password=password123
-  ```
-  - Añadir el URI del jwk.json al cliente de Oauth2 en Ory, se peude hacer desde la consola
-- El mismo scope que usará Inji para las credenciales, agregarla a Ory. El scope en Inji se peude encontrar en el proyecto de Inji Certify en `mosip.certify.key-values`, por ejemplo se puede ver aquí que el scope es `driver_license_vc_ldp`:
- mosip.certify.key-values={\
-  'latest' : {\
-              'credential_issuer': '${mosip.certify.identifier}',   \
-              'authorization_servers': {'${mosip.certify.authorization.url}'}, \
-              'credential_endpoint': '${mosipbox.public.url}${server.servlet.path}/issuance/credential', \
-              'display': {{'name': 'INTRANT', 'locale': 'en'}},\
-              'credential_configurations_supported' : { \
-                 'DriverLicense' : {\
-                    'format': 'ldp_vc',\
-                    'scope' : 'driver_license_vc_ldp',\
-
-Ese mismo scope debe agregarse en la configuración del cliente
-
-- Ejecutar el siguiente comando:
-```
-ory patch oauth2-config {project.id} \
-  --replace '/strategies/jwt/scope_claim="both"'
-```
-
-- El access token debe tener un c_nonce y un c_nonce_expires_in que se debe crear desde un web hook
- - Crea un servicio que genere esos valores y ponlos en una URL pública ejemplo de lo que debe devolver despues de un post request:
-  ```
-  {
-    "session": {
-        "access_token": {
-            "c_nonce": "ZP2WJAIbGDtnOXFcOTny6Ajzskb0s2xawLaKU-r-hyg",
-            "c_nonce_expires_in": 300
-        }
-    }
-  }
-  ```
- - Modifica el archivo de configuración de Ory para que haga lo siguiente
-  - Agregue el URL del webhook que genera el c_nonce
-  - Modifica el valor de `allowed_top_level_claims` para que incluya `c_nonce` y `c_nonce_expires_in`.
-
-Modificaciones en los archivos de configuración
-- En el mimoto-issuers-config.json modificar estos campos:
-  ```
-  "authorization_audience": "https://cuenta.digital.gob.do/oauth2/token",
-  "proxy_token_endpoint": "https://cuenta.digital.gob.do/oauth2/token",
-  ```
-- En certify-default.properties modificar los siguientes campos
-  ```
-  mosip.certify.authorization.url=https://cuenta.digital.gob.do
-
-  ...
-
-  mosip.certify.authn.issuer-uri=https://cuenta.digital.gob.do
-  mosip.certify.authn.jwk-set-uri=https://cuenta.digital.gob.do/.well-known/jwks.json
-  ```
-
-Modificación del código fuente de mimoto
-Alguas configuraciones al código fuete de Mimoto son necesarias:
-- En src\main\java\io\mosip\mimoto\service\impl\CredentialServiceImpl.java en el método getTokenResponse cuando se llama el método constructGetTokenRequest cambiar el último parámetro de la siguiente manera:
-```
-HttpEntity<MultiValueMap<String, String>> request = idpService.constructGetTokenRequest(params, issuerDTO, "https://{project.slug}.projects.oryapis.com/oauth2/token");
-```
-- Agregar el campo jti a los JWT, En el archivo JoseUtil.java e el método getJWT añadir el campo jti en el return
-  ```
-  return JWT.create()
-                .withHeader(header)
-                .withIssuer(clientId)
-                .withSubject(clientId)
-                .withAudience(audience)
-                .withExpiresAt(expiresAt)
-                .withIssuedAt(issuedAt)
-                .withClaim("jti", UUID.randomUUID().toString())  // <--- Nuevo cambio
-                .sign(Algorithm.RSA256(null, privateKey));
-  ```
-- También agregarlo en el método generateJwt del mismo archivo:
- ```
- Map<String, Object> payload = new HashMap<>();
-        payload.put("sub", clientId);
-        payload.put("aud", audience);
-        payload.put("nonce", cNonce);
-        payload.put("iss", clientId);
-        payload.put("exp", expiresAt.toInstant().getEpochSecond());
-        payload.put("iat", issuedAt.toInstant().getEpochSecond());
-        payload.put("jti", UUID.randomUUID().toString());  // <--- nuevo cambio
- ```
-
- - Compilar el proyecto de Mimoto y hacer los cambios en el docker compose para que en vez de utilizar una imagen de dockerhub utilice una imagen creadad a partir de la compilación del código fuente
-    Método con el que se compila el proyecto: `mvn clean install -Dgpg.skip=true -Dmaven.javadoc.skip=true -DskipTests=true`
-
-Y listo con eso ya debería funcionar
-# Documentación de Integración entre Cuenta Única e Inji
-
-Esta guía te ayudará a integrar exitosamente **Cuenta Única** (basada en Ory Hydra) con **Inji**, cubriendo los aspectos esenciales para asegurar compatibilidad con flujos de credenciales verificables. Abarca configuraciones del cliente OAuth2, ajustes en el código fuente de Mimoto y servicios externos requeridos como el `c_nonce`.
-
-
-
-## 1. Configuración del Cliente OAuth2 en Cuenta Única
-
-Para que **Inji** pueda funcionar correctamente como un verificador dentro de un flujo OpenID Connect, es necesario configurar de forma precisa al cliente en **Cuenta Única**.
-
-### Cambiar el Tipo de Access Token a JWT
-
-**Cuenta Única** debe emitir access tokens en formato JWT para permitir la validación sin contacto adicional con el servidor.
-
-Ejecuta el siguiente comando para activar la estrategia JWT:
-
-```bash
-ory patch oauth2-config \
-  --project <project_id> \
-  --workspace <workspace_id> \
-  --replace "/oauth2/access_token_strategy=jwt"
-```
-
-### Crear y Publicar el JSON Web Key Set (JWKS)
-
-#### Paso 1: Generar las claves RSA
-
-```bash
-openssl genpkey -algorithm RSA -out private.key -pkeyopt rsa_keygen_bits:2048
-openssl rsa -in private.key -pubout -out public.key
-```
-
-#### Paso 2: Convertir a formato JWKS
-
-Puedes usar:
-
-* [https://mkjwk.org](https://mkjwk.org)
-* Librerías como `node-jose`, `python-jose`, o `jose` en JavaScript
-
-El JWKS debe contener la clave pública, con los campos `use: "sig"` y `alg: "RS256"`. Ejemplo:
-
-```json
-{
-  "keys": [
-    {
-      "kty": "RSA",
-      "use": "sig",
-      "kid": "1",
-      "alg": "RS256",
-      "n": "...",
-      "e": "AQAB"
-    }
-  ]
+        clientId: context.selectedIssuer.client_id,
+        redirectUri: context.selectedIssuer.redirect_uri
+      },
+      getProofJwt,
+      navigateToAuthView,
+      getTokenResponse
+    );
+  
+  return updateCredentialInformation(context, credential);
 }
 ```
 
-#### Paso 3: Publicar el JWKS en una URL accesible públicamente
-
-Puedes subirlo a:
-
-* Un bucket de S3 con política pública
-* GitHub Pages
-* Cualquier CDN o hosting estático
-
-Por ejemplo: `https://miapp.com/jwks.json`
-
-### Paso 4: Registrar el cliente en Cuenta Única
-
-```json
-{
-  "client_id": "cliente-inji",
-  "token_endpoint_auth_method": "private_key_jwt",
-  "jwks_uri": "https://miapp.com/jwks.json",
-  "grant_types": ["authorization_code"],
-  "response_types": ["code"],
-  "redirect_uris": ["https://inji.miapp.com/callback"],
-  "scope": "openid vc_authn"
+**Native VciClient** (Kotlin):
+```kotlin
+suspend fun requestCredentialFromTrustedIssuer(
+  credentialIssuer: String,
+  credentialConfigurationId: String,
+  clientMetadata: ClientMetadata,
+  authorizeUser: AuthorizeUserCallback,
+  getTokenResponse: TokenResponseCallback,
+  getProofJwt: ProofJwtCallback,
+  downloadTimeoutInMillis: Long
+): CredentialResponse {
+  // Delegates to TrustedIssuerFlowHandler
+  return TrustedIssuerFlowHandler().downloadCredentials(...)
 }
 ```
 
-
-
-## 2. Cambios en el Código Fuente de Mimoto
-
-Para cumplir con las expectativas del flujo de verificación de credenciales, Mimoto necesita ser modificado.
-
-### A. Incluir el `jti` en los Tokens
-
-El campo `jti` (JWT ID) ayuda a prevenir ataques de repetición. Puedes generarlo con `uuid`:
-
-```javascript
-const { v4: uuid } = require('uuid');
-idTokenPayload.jti = uuid();
+### Step 10a: OAuth Authorization (Sub-flow)
+```
+Native calls: authorizeUser callback
+↓
+Event sent to JS: AUTH_ENDPOINT_RECEIVED
+↓
+Action: Opens browser/WebView with authorization URL
+↓
+User logs in and authorizes
+↓
+Redirect back to app with authorization code
+↓
+Native captures authorization code
 ```
 
-Colócalo antes de firmar el ID Token.
-
-### B. Hardcodear el `aud` (Audience)
-
-El campo `aud` debe coincidir con el identificador del verificador. Si estás trabajando sólo con Inji, puedes establecerlo así:
-
-```javascript
-idTokenPayload.aud = "https://certify.inji.org";
+### Step 10b: Token Exchange (Sub-flow)
+```
+Native calls: getTokenResponse callback
+↓
+Event sent to JS: TOKEN_REQUEST
+↓
+Transition: downloadCredentials.tokenRequest state
+↓
+Invokes: sendTokenRequest service
 ```
 
-Opcionalmente, puedes hacerlo condicional si hay múltiples clientes OAuth2.
-
-
-
-## 3. Configurar que el scope sea enviado como "scope" en vez de "scp"
-
-Por defecto, **Cuenta Única** (basada en Ory Hydra) puede emitir el claim `scp` para representar los permisos del token. Sin embargo, Inji espera recibir `scope`.
-
-Ejecuta lo siguiente:
-
-```bash
-ory patch oauth2-config \
-  --project <project_id> \
-  --workspace <workspace_id> \
-  --replace "/oauth2/allowed_top_level_claims=[\"scope\",\"c_nonce\",\"c_nonce_expires_in\"]"
-```
-
-Esto asegura que el claim `scope` se incluya explícitamente en el access token.
-
-
-
-## 4. Crear un Servicio para el `c_nonce`
-
-Inji requiere un `c_nonce` único por flujo de autenticación. Este valor debe ser generado por un webhook que **Cuenta Única** invoca.
-
-### A. Crear el Servicio de `c_nonce`
+**File**: `machines/Issuers/IssuersService.ts`
 
 ```javascript
-const express = require('express');
-const app = express();
-const { v4: uuid } = require('uuid');
-
-app.get('/c_nonce', (req, res) => {
-  res.json({
-    c_nonce: uuid(),
-    c_nonce_expires_in: 300 // 5 minutos
+sendTokenRequest: async (context) => {
+  const tokenRequestObject = context.tokenRequestObject;
+  
+  // Builds form-urlencoded request
+  const formBody = new URLSearchParams();
+  formBody.append('grant_type', tokenRequestObject.grantType);
+  formBody.append('code', tokenRequestObject.authCode);
+  formBody.append('client_id', tokenRequestObject.clientId);
+  formBody.append('redirect_uri', tokenRequestObject.redirectUri);
+  formBody.append('code_verifier', tokenRequestObject.codeVerifier);
+  
+  // Exchanges authorization code for access token
+  const response = await fetch(tokenRequestObject.tokenEndpoint, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: formBody.toString()
   });
-});
-
-app.listen(3000, () => console.log('Servicio c_nonce corriendo en puerto 3000'));
+  
+  const tokenResponse = await response.json();
+  
+  // Extracts c_nonce from JWT if present
+  if (tokenResponse.access_token) {
+    const payload = decodeJWT(tokenResponse.access_token);
+    if (payload.c_nonce) {
+      tokenResponse.c_nonce = payload.c_nonce;
+    }
+  }
+  
+  return tokenResponse;
+}
 ```
 
-### B. Publicar la URL del webhook
-
-Debe estar disponible vía HTTPS y accesible para **Cuenta Única**. Ejemplo: `https://miapp.com/c_nonce`
-
-### C. Configurar el webhook en Cuenta Única
-
-```bash
-ory patch oauth2-config \
-  --project <project_id> \
-  --workspace <workspace_id> \
-  --replace "/oauth2/strategies/access_token/c_nonce_hook_url=https://miapp.com/c_nonce"
+```
+Success:
+  - Actions: setTokenResponseObject
+  - Transition: sendTokenResponse state
+↓
+Invokes: sendTokenResponse service
 ```
 
+**File**: `machines/Issuers/IssuersService.ts`
 
+```javascript
+sendTokenResponse: async (context) => {
+  // Sends token response back to native
+  await VciClient.getInstance().sendTokenResponse(
+    JSON.stringify(context.tokenResponse)
+  );
+}
+```
 
-## Conclusión
+### Step 10c: Proof Generation (Sub-flow)
+```
+Native calls: getProofJwt callback
+↓
+Event sent to JS: PROOF_REQUEST
+↓
+Actions: setCNonce, setWellknownKeyTypes
+↓
+Transition: downloadCredentials.keyManagement state
+```
 
-Con esta documentación, puedes replicar una integración robusta entre **Cuenta Única** e **Inji**, asegurando compatibilidad con el modelo de credenciales verificables. Asegúrate de validar que:
+#### Key Management States:
 
-* Los JWT emitidos contienen `jti`, `aud` y `scope` de manera adecuada.
-* El `c_nonce` es generado dinámicamente y firmado por un endpoint confiable.
-* Las llaves estén almacenadas y protegidas según buenas prácticas.
+**setSelectedKey**:
+```
+Invokes: getKeyOrderList service
+↓
+Gets preferred key algorithm order from secure storage
+↓
+Actions: setSelectedKey
+↓
+Transition: getKeyPairFromKeystore
+```
 
-Esta integración sienta las bases para un ecosistema interoperable de identidad digital basado en estándares abiertos.
+**getKeyPairFromKeystore**:
+```
+Invokes: getKeyPair service
+↓
+Attempts to fetch existing keypair from secure keystore
+↓
+Two Paths:
+  - If keypair exists → Actions: loadKeyPair, Transition: constructProof
+  - If no keypair → Transition: generateKeyPair
+  
+Special Case:
+  - If biometric cancelled → Transition: userCancelledBiometric
+```
+
+**generateKeyPair** (if needed):
+```
+Invokes: generateKeyPair service
+↓
+Generates new cryptographic keypair (RSA/EC)
+↓
+Stores in secure keystore
+↓
+Actions: setPublicKey, setPrivateKey, storeKeyPair
+↓
+Transition: constructProof
+```
+
+**constructProof**:
+```
+Invokes: constructAndSendProofForTrustedIssuers service
+```
+
+**File**: `machines/Issuers/IssuersService.ts`
+
+```javascript
+constructAndSendProofForTrustedIssuers: async (context) => {
+  // Constructs JWT proof with key binding
+  const proofJWT = await constructProofJWT(
+    context.publicKey,
+    context.privateKey,
+    context.selectedIssuer.credential_issuer_host,
+    context.selectedIssuer.client_id,
+    context.keyType,
+    context.wellknownKeyTypes,
+    false, // isCredentialOfferFlow
+    context.cNonce
+  );
+  
+  // Sends proof JWT back to native
+  await VciClient.getInstance().sendProof(proofJWT);
+  
+  return proofJWT;
+}
+```
+
+```
+Success:
+  - Transition back: downloadCredentials.idle
+  - Native continues with credential request
+```
+
+### Step 11: Receive Credential
+```
+Native completes credential request
+↓
+Returns credential to JS via promise resolution
+↓
+Actions: setVerifiableCredential, setCredentialWrapper
+↓
+Transition: verifyingCredential state
+```
+
+### Step 12: Verify Credential
+**File**: `machines/Issuers/IssuersMachine.ts`
+
+```
+State: verifyingCredential
+↓
+Invokes: verifyCredential service
+```
+
+**File**: `machines/Issuers/IssuersService.ts`
+
+```javascript
+verifyCredential: async (context) => {
+  // Verifies credential signature and structure
+  const verificationResult = await verifyCredentialData(
+    context.verifiableCredential?.credential,
+    context.selectedCredentialType.format
+  );
+  
+  if (!verificationResult.isVerified) {
+    throw new Error(verificationResult.verificationErrorCode);
+  }
+  
+  return verificationResult;
+}
+```
+
+```
+Success:
+  - Actions: setVerificationResult, sendSuccessEndEvent
+  - Transition: storing state
+  
+Error (Network Issue):
+  - Actions: resetVerificationResult
+  - Still transitions: storing state (verification pending)
+  
+Error (Other):
+  - Actions: sendErrorEndEvent, updateVerificationErrorMessage
+  - Transition: handleVCVerificationFailure state
+```
+
+### Step 13: Store Credential
+**File**: `machines/Issuers/IssuersMachine.ts`
+
+```
+State: storing
+↓
+Entry Actions (synchronous):
+  - setVCMetadata
+  - setMetadataInCredentialData
+  - storeVerifiableCredentialMeta
+  - storeVerifiableCredentialData
+  - storeVcsContext
+  - storeVcMetaContext
+  - logDownloaded
+↓
+Invokes: isUserSignedAlready service
+↓
+If signed in:
+  - Actions: sendBackupEvent
+↓
+Transition: done (final state)
+```
+
+### Step 14: Add to My VCs Tab
+**File**: `screens/Home/HomeScreenMachine.ts`
+
+```
+IssuersMachine reaches final state (done)
+↓
+HomeScreenMachine receives: DOWNLOAD_ID event
+↓
+Actions: sendAddEvent
+↓
+Sends 'ADD_VC' event to MyVcs tab
+↓
+MyVcs tab spawns new VCItemMachine for the credential
+```
+
+### Step 15: VCItemMachine Lifecycle
+**File**: `machines/VerifiableCredential/VCItemMachine/VCItemMachine.ts`
+
+```
+VCItemMachine spawned for new credential
+↓
+Initial State: vcUtilitiesState.loadVc.loadVcFromContext
+↓
+Entry: requestVcContext (loads from storage)
+↓
+Event: GET_VC_RESPONSE
+↓
+Actions: setContext
+↓
+Transition: idle state
+↓
+Credential now visible in My VCs list
+```
+
+---
+
+## Flow 2: Credential Offer (QR Code) Flow
+
+### Step 1: User Initiates QR Scan
+```
+User: Clicks "Scan QR Code" button
+↓
+Event: SCAN_CREDENTIAL_OFFER_QR_CODE
+↓
+Transition: waitingForQrScan state
+```
+
+### Step 2: QR Code Scanned
+```
+State: waitingForQrScan
+↓
+User scans QR code containing credential offer
+↓
+Event: QR_CODE_SCANNED
+↓
+Actions: setLoadingReasonAsDownloadingCredentials, setQrData
+↓
+Transition: credentialDownloadFromOffer state
+```
+
+### Step 3: Download from Credential Offer
+**File**: `machines/Issuers/IssuersMachine.ts`
+
+```
+State: credentialDownloadFromOffer
+↓
+Entry: setCredentialOfferFlowType, resetSelectedIssuer
+↓
+Invokes: downloadCredentialFromOffer service
+```
+
+**File**: `machines/Issuers/IssuersService.ts`
+
+```javascript
+downloadCredentialFromOffer: (context) => async (sendBack) => {
+  // Callback for TX Code (transaction code)
+  const getTxCode = async (inputMode, description, length) => {
+    sendBack({
+      type: 'TX_CODE_REQUEST',
+      inputMode,
+      description,
+      length
+    });
+  };
+  
+  // Callback for issuer trust consent
+  const requestTrustIssuerConsent = async (credentialIssuer, issuerDisplay) => {
+    sendBack({
+      type: 'TRUST_ISSUER_CONSENT_REQUEST',
+      issuerDisplay,
+      issuer: credentialIssuer
+    });
+  };
+  
+  // Similar callbacks for auth and proof as trusted issuer flow
+  const navigateToAuthView = (authorizationEndpoint) => { ... };
+  const getSignedProofJwt = async (credentialIssuer, cNonce, algos) => { ... };
+  const getTokenResponse = (tokenRequest) => { ... };
+  
+  // Native library processes credential offer
+  const credentialResponse = await VciClient.getInstance()
+    .requestCredentialByOffer(
+      context.qrData,
+      getTxCode,
+      getSignedProofJwt,
+      navigateToAuthView,
+      getTokenResponse,
+      requestTrustIssuerConsent
+    );
+  
+  return credentialResponse;
+}
+```
+
+**Native VciClient** (Kotlin):
+```kotlin
+suspend fun requestCredentialByCredentialOffer(
+  credentialOffer: String,
+  clientMetadata: ClientMetadata,
+  getTxCode: TxCodeCallback?,
+  authorizeUser: AuthorizeUserCallback,
+  getTokenResponse: TokenResponseCallback,
+  getProofJwt: ProofJwtCallback,
+  onCheckIssuerTrust: CheckIssuerTrustCallback?
+): CredentialResponse {
+  // Delegates to CredentialOfferFlowHandler
+  return CredentialOfferFlowHandler().downloadCredentials(...)
+}
+```
+
+### Step 3a: Trust Issuer Consent (Sub-flow)
+```
+Native calls: onCheckIssuerTrust callback
+↓
+Event: TRUST_ISSUER_CONSENT_REQUEST
+↓
+Actions: setIssuerDisplayDetails, setSelectedCredentialIssuer
+↓
+Transition: checkingIssuerTrust state
+↓
+Invokes: checkIssuerIdInStoredTrustedIssuers service
+```
+
+**Check if issuer is already trusted**:
+```javascript
+checkIssuerIdInStoredTrustedIssuers: async (context) => {
+  // Checks secure keystore for issuer alias
+  return await RNSecureKeystoreModule.hasAlias(
+    context.credentialOfferCredentialIssuer
+  );
+}
+```
+
+```
+If already trusted:
+  - Transition: sendConsentGiven
+  
+If not trusted:
+  - Actions: setRequestConsentToTrustIssuer
+  - Transition: credentialOfferDownloadConsent state
+  - Shows UI asking user to trust issuer
+```
+
+**User gives consent**:
+```
+Event: ON_CONSENT_GIVEN
+↓
+Actions: setLoadingReasonAsDownloadingCredentials
+↓
+Transition: sendConsentGiven state
+↓
+Invokes: sendConsentGiven service
+```
+
+```javascript
+sendConsentGiven: async () => {
+  // Notifies native that user consented
+  await VciClient.getInstance().sendIssuerConsent(true);
+}
+```
+
+```
+Success:
+  - Transition: updatingTrustedIssuerList
+  - Adds issuer to trusted list in secure storage
+```
+
+**User cancels**:
+```
+Event: CANCEL
+↓
+Transition: sendConsentNotGiven state
+↓
+Sends consent=false to native
+↓
+Returns to selectingIssuer state
+```
+
+### Step 3b: Transaction Code (Sub-flow)
+```
+If credential offer requires TX code:
+↓
+Native calls: getTxCode callback
+↓
+Event: TX_CODE_REQUESTED
+↓
+Actions: setRequestTxCode, setTxCodeDisplayDetails
+↓
+Transition: waitingForTxCode state
+↓
+Shows UI input for transaction code
+```
+
+**User enters TX code**:
+```
+Event: TX_CODE_RECEIVED
+↓
+Actions: setTxCode, resetRequestTxCode
+↓
+Transition: sendTxCode state
+↓
+Invokes: sendTxCode service
+```
+
+```javascript
+sendTxCode: async (context) => {
+  // Sends TX code to native
+  await VciClient.getInstance().sendTxCode(context.txCode);
+}
+```
+
+### Step 3c: Token Exchange (Similar to Trusted Flow)
+```
+Event: TOKEN_REQUEST
+↓
+Transition: tokenRequest state
+↓
+Same token exchange process as trusted issuer flow
+```
+
+### Step 3d: Proof Generation (Similar to Trusted Flow)
+```
+Event: PROOF_REQUEST
+↓
+Actions: setCNonce, setWellknownKeyTypes, setSelectedCredentialIssuer
+↓
+Transition: keyManagement state
+↓
+Same key management process as trusted issuer flow
+↓
+Invokes: constructProof service (different method)
+```
+
+```javascript
+constructProof: async (context) => {
+  const proofJWT = await constructProofJWT(
+    context.publicKey,
+    context.privateKey,
+    context.credentialOfferCredentialIssuer,
+    null, // No client_id for credential offers
+    context.keyType,
+    context.wellknownKeyTypes,
+    true, // isCredentialOfferFlow = true
+    context.cNonce
+  );
+  
+  await VciClient.getInstance().sendProof(proofJWT);
+  return proofJWT;
+}
+```
+
+### Step 4: Cache Issuer Wellknown
+```
+Credential received from native
+↓
+Actions: setCredential, setCredentialConfigurationId
+↓
+Transition: cachingCredentialOfferIssuerWellknown state
+↓
+Invokes: cacheIssuerWellknown service
+↓
+Fetches and caches issuer metadata for future use
+```
+
+### Step 5: Process Credential
+```
+Transition: proccessingCredential state
+↓
+Invokes: updateCredential service
+↓
+Updates credential with context information
+↓
+Actions: setVerifiableCredential, setCredentialWrapper
+↓
+Transition: verifyingCredential state
+```
+
+### Steps 6-9: Same as Trusted Issuer Flow
+```
+- Verify credential (Step 12)
+- Store credential (Step 13)
+- Add to My VCs (Step 14)
+- Spawn VCItemMachine (Step 15)
+```
+
+---
+
+## Key Components Summary
+
+### State Machines
+1. **HomeScreenMachine** - Navigation and tab management
+2. **IssuersMachine** - Core download orchestration
+3. **VCItemMachine** - Individual credential lifecycle
+
+### Native Bridge
+- **VciClient (Kotlin)** - OpenID4VCI protocol implementation
+- **Callbacks** - Native-to-JS communication pattern
+- **RNSecureKeystoreModule** - Secure key storage
+
+### Services
+- **IssuersService** - Business logic for downloads
+- **VCItemServices** - Credential storage and verification
+
+### Key Technologies
+- **OpenID4VCI** - Credential issuance protocol
+- **OAuth2/OIDC** - Authorization framework
+- **JWT** - Proof tokens with key binding
+- **PKI** - Public/private key cryptography
+
+### Storage
+- **Secure Keystore** - Private keys, trusted issuers
+- **Local Storage** - Credential data, metadata, cache
+
+---
+
+## Error Handling
+
+### Storage Full
+```
+HomeScreenMachine.checkStorage
+↓ (if full)
+storageLimitReached state
+↓
+Shows error to user
+```
+
+### Network Errors
+```
+Any service invocation
+↓ (on network error)
+error state
+↓
+Actions: setError
+↓
+User can retry via TRY_AGAIN event
+```
+
+### Biometric Cancelled
+```
+Key fetching during proof generation
+↓ (user cancels biometric)
+userCancelledBiometric state
+↓
+Shows retry option
+```
+
+### Verification Failed
+```
+verifyingCredential state
+↓ (verification error)
+handleVCVerificationFailure state
+↓
+Actions: removeVcMetaDataFromStorage
+↓
+Shows error to user
+```
+
+### Token Request Failed
+```
+sendTokenRequest service
+↓ (HTTP error)
+Throws error with status code
+↓
+Caught by state machine
+↓
+Transitions to error state
+```
+
+---
+
+## Data Flow Diagram
+
+```
+User Action (FAB Click)
+    ↓
+HomeScreenMachine (GOTO_ISSUERS)
+    ↓
+Check Storage
+    ↓
+IssuersMachine (spawned)
+    ↓
+Display Issuers List ← API Call
+    ↓
+User Selects Issuer
+    ↓
+Download Wellknown ← API Call
+    ↓
+Get Credential Types
+    ↓
+User Selects Type
+    ↓
+Download Credential → VciClient (Native)
+    ↓                      ↓
+    ↓                 OAuth Flow
+    ↓                      ↓
+    ↓                 Token Exchange ← API Call
+    ↓                      ↓
+    ↓                 Generate Proof ← Keystore
+    ↓                      ↓
+    ↓                 Credential Request ← API Call
+    ↓                      ↓
+    ← Credential Received ←
+    ↓
+Verify Credential
+    ↓
+Store Credential → Secure Storage
+    ↓
+Add to My VCs → VCItemMachine
+    ↓
+Display in UI
+```
+
+---
+
+## Security Considerations
+
+### Private Key Protection
+- Keys stored in platform secure keystore
+- Biometric authentication required for key access
+- Keys never leave secure storage
+- Different key types supported (RSA, EC)
+
+### Credential Verification
+- Signature verification before storage
+- Issuer trust validation
+- Network verification (when available)
+- Tamper detection
+
+### Issuer Trust
+- Pre-approved trusted issuers list
+- User consent for new issuers (QR flow)
+- Issuer ID stored in secure keystore
+- Display info validation
+
+### OAuth Security
+- PKCE (Proof Key for Code Exchange)
+- State parameter validation
+- Redirect URI validation
+- Short-lived authorization codes
+
+---
+
+## Performance Optimizations
+
+### Caching
+- Issuer wellknown configurations cached
+- Reduces redundant API calls
+- Cache invalidation strategy
+
+### Parallel States
+- VCItemMachine uses parallel states
+- Multiple operations can run concurrently
+- Better user experience
+
+### Lazy Loading
+- VCs loaded on demand from storage
+- Only metadata kept in memory
+- Full VC loaded when viewing
+
+---
+
+## Testing Considerations
+
+### Unit Tests
+- Service functions (pure logic)
+- Guards (conditional logic)
+- Actions (state mutations)
+
+### Integration Tests
+- State machine transitions
+- Service invocations
+- Event handling
+
+### E2E Tests
+- Complete download flows
+- Error scenarios
+- User interactions
+
+### Mock Points
+- CACHED_API.fetchIssuers()
+- VciClient.getInstance()
+- Native module methods
+- Network requests
