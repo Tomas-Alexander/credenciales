@@ -6,7 +6,7 @@
   "id": "did:web:tomas-alexander.github.io:credenciales:mescyt",
   "verificationMethod": [
     {
-      "publicKeyMultibase": "z6MkkFy7HYmDPEFZrfu9DAVvbFbYnxjmtBw2RALX2Xo4HidS",
+      "publicKeyMultibase": "z6MknU3VYFkrTntnmNkeD3g2tuc7zXPNygzMWBL7mdaTg2ew",
       "controller": "did:web:tomas-alexander.github.io:credenciales:mescyt",
       "id": "did:web:tomas-alexander.github.io:credenciales:mescyt#key-0",
       "type": "Ed25519VerificationKey2020",
