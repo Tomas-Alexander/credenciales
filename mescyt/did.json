@@ -1,0 +1,23 @@
+{
+  "assertionMethod": [
+    "did:web:tomas-alexander.github.io:credenciales:mescyt#key-0"
+  ],
+  "service": [],
+  "id": "did:web:tomas-alexander.github.io:credenciales:mescyt",
+  "verificationMethod": [
+    {
+      "publicKeyMultibase": "z6MkokLnaLTHiib4eybNGyYfMNuKFDfstwGUau1gDHtqLkHy",
+      "controller": "did:web:tomas-alexander.github.io:credenciales:mescyt",
+      "id": "did:web:tomas-alexander.github.io:credenciales:mescyt#key-0",
+      "type": "Ed25519VerificationKey2020",
+      "@context": "https://w3id.org/security/suites/ed25519-2020/v1"
+    }
+  ],
+  "@context": [
+    "https://www.w3.org/ns/did/v1"
+  ],
+  "alsoKnownAs": [],
+  "authentication": [
+    "did:web:tomas-alexander.github.io:credenciales:mescyt#key-0"
+  ]
+}
